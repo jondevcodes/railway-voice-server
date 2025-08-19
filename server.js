@@ -6,6 +6,7 @@ console.log('Environment variables:', {
   PORT: process.env.PORT,
   NODE_ENV: process.env.NODE_ENV
 });
+console.log('Forcing fresh deployment...');
 
 // Create Express app
 const app = express();
