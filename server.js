@@ -1,84 +1,7 @@
 const uWS = require('uWebSockets.js');
-const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
-// Initialize Supabase client
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-// Restaurant functions using Supabase
-const restaurantFunctions = {
-  async getMenuItemByName(name) {
-    try {
-      const { data, error } = await supabase
-        .from('menu_items')
-        .select('*')
-        .ilike('name', `%${name}%`)
-        .eq('available', true)
-        .single();
-      
-      if (error || !data) {
-        return { error: 'Menu item not found' };
-      }
-      
-      return {
-        name: data.name,
-        description: data.description,
-        price: data.price,
-        category: data.category
-      };
-    } catch (error) {
-      return { error: 'Failed to get menu item' };
-    }
-  },
-
-  async getMenuByCategory(category = null) {
-    try {
-      let query = supabase.from('menu_items').select('*').eq('available', true);
-      if (category) {
-        query = query.eq('category', category);
-      }
-      const { data, error } = await query;
-      
-      if (error) {
-        return { error: 'Failed to get menu' };
-      }
-      
-      return {
-        items: data,
-        count: data.length
-      };
-    } catch (error) {
-      return { error: 'Failed to get menu' };
-    }
-  },
-
-  async getRestaurantInfo() {
-    try {
-      const { data, error } = await supabase
-        .from('restaurant_info')
-        .select('*')
-        .single();
-      
-      if (error || !data) {
-        return { error: 'Restaurant info not found' };
-      }
-      
-      return {
-        name: data.name,
-        address: data.address,
-        phone: data.phone,
-        hours: data.hours,
-        specialties: data.specialties,
-        delivery: data.delivery_info,
-        pickup: data.pickup_info
-      };
-    } catch (error) {
-      return { error: 'Failed to get restaurant info' };
-    }
-  }
-};
+console.log('🚀 Starting Railway Voice Server...');
 
 // Session management
 const sessions = new Map();
@@ -124,7 +47,6 @@ app.ws('/stream', {
         console.log('Received audio data:', message.length, 'bytes');
         
         // For now, just acknowledge receipt
-        // TODO: Process audio with Deepgram STT
         const response = {
           type: 'ack',
           timestamp: Date.now()
@@ -164,55 +86,30 @@ app.ws('/stream', {
   }
 });
 
-// Handle text messages (for testing without STT)
+// Handle text messages (simple responses for now)
 async function handleTextMessage(session, text) {
   const lowerText = text.toLowerCase();
   
   if (lowerText.includes('menu')) {
-    const menu = await restaurantFunctions.getMenuByCategory();
-    if (menu.error) {
-      return {
-        type: 'tts',
-        text: 'I\'m sorry, I couldn\'t retrieve the menu at the moment. Please try again later.'
-      };
-    } else {
-      let menuText = 'Here are some of our popular items: ';
-      menu.items.slice(0, 5).forEach(item => {
-        menuText += `${item.name} for $${item.price}, `;
-      });
-      menuText += 'Would you like to place an order?';
-      
-      return {
-        type: 'tts',
-        text: menuText
-      };
-    }
+    return {
+      type: 'tts',
+      text: 'Here are some of our popular items: Classic Cheeseburger for $12.99, Grilled Chicken Breast for $14.99, Margherita Pizza for $16.99, Caesar Salad for $9.99, and Chocolate Cake for $6.99. Would you like to place an order?'
+    };
   } else if (lowerText.includes('hours') || lowerText.includes('open')) {
-    const info = await restaurantFunctions.getRestaurantInfo();
-    if (info.error) {
-      return {
-        type: 'tts',
-        text: 'I\'m sorry, I couldn\'t retrieve our hours at the moment.'
-      };
-    } else {
-      return {
-        type: 'tts',
-        text: `We are ${info.hours}. ${info.specialties}`
-      };
-    }
+    return {
+      type: 'tts',
+      text: 'We are open daily from 11:00 AM to 10:00 PM. We specialize in fresh seafood, grilled specialties, and local favorites.'
+    };
   } else if (lowerText.includes('address') || lowerText.includes('location')) {
-    const info = await restaurantFunctions.getRestaurantInfo();
-    if (info.error) {
-      return {
-        type: 'tts',
-        text: 'I\'m sorry, I couldn\'t retrieve our address at the moment.'
-      };
-    } else {
-      return {
-        type: 'tts',
-        text: `We are located at ${info.address}. ${info.pickup}`
-      };
-    }
+    return {
+      type: 'tts',
+      text: 'We are located at 123 Ocean Boulevard, Myrtle Beach, South Carolina 29577. We offer pickup for all orders and delivery for orders over $25.'
+    };
+  } else if (lowerText.includes('order') || lowerText.includes('food')) {
+    return {
+      type: 'tts',
+      text: 'Great! I\'d be happy to help you place an order. Please spell out your full name clearly, and then tell me what you\'d like to order.'
+    };
   } else if (lowerText.includes('goodbye') || lowerText.includes('bye')) {
     return {
       type: 'tts',
@@ -233,19 +130,24 @@ app.get('/health', (res, req) => {
   res.end(JSON.stringify({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    activeSessions: sessions.size
+    activeSessions: sessions.size,
+    message: 'Railway Voice Server is running!'
   }));
 });
 
 // Start server
 const port = process.env.PORT || 3000;
+console.log(`Starting server on port ${port}...`);
+
 app.listen(port, (token) => {
   if (token) {
     console.log(`🚀 Railway Voice Server running on port ${port}`);
     console.log(`📡 WebSocket endpoint: ws://localhost:${port}/stream`);
     console.log(`🏥 Health check: http://localhost:${port}/health`);
+    console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
   } else {
     console.error('❌ Failed to start server');
+    process.exit(1);
   }
 });
 
@@ -254,7 +156,6 @@ setInterval(() => {
   const now = Date.now();
   sessions.forEach((session, sessionId) => {
     if (now - session.lastHeard > 5000) {
-      // Send ping to keep connection alive
       console.log('Sending ping to session:', sessionId);
     }
   });
@@ -269,4 +170,15 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   console.log('Received SIGINT, shutting down gracefully...');
   process.exit(0);
+});
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
