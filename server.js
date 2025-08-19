@@ -1,68 +1,67 @@
-const uWS = require('uWebSockets.js');
+const express = require('express');
+const { WebSocketServer } = require('ws');
+const http = require('http');
 require('dotenv').config();
 
 console.log('🚀 Starting Railway Voice Server...');
+
+// Create Express app
+const app = express();
+const server = http.createServer(app);
 
 // Session management
 const sessions = new Map();
 
 // Create WebSocket server
-const app = uWS.App();
+const wss = new WebSocketServer({ server });
 
-// WebSocket endpoint for Twilio Media Streams
-app.ws('/stream', {
-  idleTimeout: 60, // 60 second timeout
-  compression: uWS.SHARED_COMPRESSOR,
-  maxPayloadLength: 16 * 1024 * 1024, // 16MB max payload
+// WebSocket connection handler
+wss.on('connection', (ws) => {
+  console.log('WebSocket connection opened');
   
-  open: (ws) => {
-    console.log('WebSocket connection opened');
-    
-    // Initialize session data
-    ws.userData = {
-      sessionId: Date.now().toString(),
-      lastHeard: Date.now(),
-      conversationState: 'greeting',
-      customerName: '',
-      currentOrder: []
-    };
-    
-    sessions.set(ws.userData.sessionId, ws.userData);
-    
-    // Send initial greeting
-    const greeting = {
-      type: 'tts',
-      text: 'Hello! Welcome to Myrtle Beach Seafood & Grill! I can help you with our menu, place orders, and provide restaurant information. How can I assist you today?'
-    };
-    
-    ws.send(JSON.stringify(greeting));
-  },
+  // Initialize session data
+  ws.userData = {
+    sessionId: Date.now().toString(),
+    lastHeard: Date.now(),
+    conversationState: 'greeting',
+    customerName: '',
+    currentOrder: []
+  };
   
-  message: async (ws, message, isBinary) => {
+  sessions.set(ws.userData.sessionId, ws.userData);
+  
+  // Send initial greeting
+  const greeting = {
+    type: 'tts',
+    text: 'Hello! Welcome to Myrtle Beach Seafood & Grill! I can help you with our menu, place orders, and provide restaurant information. How can I assist you today?'
+  };
+  
+  ws.send(JSON.stringify(greeting));
+  
+  // Handle messages
+  ws.on('message', async (message) => {
     try {
       ws.userData.lastHeard = Date.now();
       
-      if (isBinary) {
-        // Handle audio data from Twilio
-        console.log('Received audio data:', message.length, 'bytes');
-        
-        // For now, just acknowledge receipt
-        const response = {
-          type: 'ack',
-          timestamp: Date.now()
-        };
-        
-        ws.send(JSON.stringify(response));
-        
-      } else {
-        // Handle text messages (for testing)
-        const data = JSON.parse(Buffer.from(message).toString());
+      // Try to parse as JSON first (text messages)
+      try {
+        const data = JSON.parse(message.toString());
         console.log('Received text message:', data);
         
         if (data.type === 'text') {
           const response = await handleTextMessage(ws.userData, data.text);
           ws.send(JSON.stringify(response));
         }
+      } catch (parseError) {
+        // If not JSON, treat as binary audio data
+        console.log('Received audio data:', message.length, 'bytes');
+        
+        const response = {
+          type: 'ack',
+          timestamp: Date.now()
+        };
+        
+        ws.send(JSON.stringify(response));
       }
     } catch (error) {
       console.error('Error handling message:', error);
@@ -74,16 +73,22 @@ app.ws('/stream', {
       
       ws.send(JSON.stringify(errorResponse));
     }
-  },
+  });
   
-  close: (ws, code, message) => {
-    console.log('WebSocket connection closed:', code, message);
+  // Handle connection close
+  ws.on('close', (code, reason) => {
+    console.log('WebSocket connection closed:', code, reason);
     
     // Clean up session
     if (ws.userData && ws.userData.sessionId) {
       sessions.delete(ws.userData.sessionId);
     }
-  }
+  });
+  
+  // Handle errors
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
 });
 
 // Handle text messages (simple responses for now)
@@ -124,31 +129,36 @@ async function handleTextMessage(session, text) {
 }
 
 // Health check endpoint
-app.get('/health', (res, req) => {
-  res.writeStatus('200 OK');
-  res.writeHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({
+app.get('/health', (req, res) => {
+  res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     activeSessions: sessions.size,
     message: 'Railway Voice Server is running!'
-  }));
+  });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Railway Voice Server',
+    status: 'running',
+    endpoints: {
+      health: '/health',
+      websocket: '/stream'
+    }
+  });
 });
 
 // Start server
 const port = process.env.PORT || 3000;
 console.log(`Starting server on port ${port}...`);
 
-app.listen(port, (token) => {
-  if (token) {
-    console.log(`🚀 Railway Voice Server running on port ${port}`);
-    console.log(`📡 WebSocket endpoint: ws://localhost:${port}/stream`);
-    console.log(`🏥 Health check: http://localhost:${port}/health`);
-    console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-  } else {
-    console.error('❌ Failed to start server');
-    process.exit(1);
-  }
+server.listen(port, () => {
+  console.log(`🚀 Railway Voice Server running on port ${port}`);
+  console.log(`📡 WebSocket endpoint: ws://localhost:${port}/stream`);
+  console.log(`🏥 Health check: http://localhost:${port}/health`);
+  console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 // Send pings every 5 seconds to keep connections alive
@@ -164,12 +174,18 @@ setInterval(() => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('Received SIGTERM, shutting down gracefully...');
-  process.exit(0);
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
 
 process.on('SIGINT', () => {
   console.log('Received SIGINT, shutting down gracefully...');
-  process.exit(0);
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
 
 // Handle uncaught errors
