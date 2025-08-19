@@ -2,6 +2,10 @@ const express = require('express');
 require('dotenv').config();
 
 console.log('🚀 Starting Railway Voice Server...');
+console.log('Environment variables:', {
+  PORT: process.env.PORT,
+  NODE_ENV: process.env.NODE_ENV
+});
 
 // Create Express app
 const app = express();
@@ -44,11 +48,22 @@ app.get('/test', (req, res) => {
 const port = process.env.PORT || 3000;
 console.log(`Starting server on port ${port}...`);
 
-app.listen(port, () => {
-  console.log(`🚀 Railway Voice Server running on port ${port}`);
-  console.log(`🏥 Health check: http://localhost:${port}/health`);
-  console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+try {
+  const server = app.listen(port, '0.0.0.0', () => {
+    console.log(`🚀 Railway Voice Server running on port ${port}`);
+    console.log(`🏥 Health check: http://localhost:${port}/health`);
+    console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+  
+  server.on('error', (error) => {
+    console.error('Server error:', error);
+    process.exit(1);
+  });
+  
+} catch (error) {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+}
 
 // Handle uncaught errors
 process.on('uncaughtException', (error) => {
